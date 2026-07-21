@@ -26,7 +26,7 @@ def _get_active_game(session: DbSession, game_id: int) -> Game:
     game = session.get(Game, game_id)
     if game is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such game.")
-    if game.status not in (GameStatus.active, GameStatus.completed):
+    if game.status not in (GameStatus.active, GameStatus.completed, GameStatus.cancelled):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This game hasn't started yet.")
     return game
 
@@ -88,6 +88,7 @@ def _board_out(session: DbSession, game: Game, requesting_user_id: int) -> Board
 
     return BoardOut(
         id=game.id,
+        creator_id=game.creator_id,
         status=game.status,
         current_turn_user_id=game.current_turn_user_id,
         dice_value=game.dice_value,
@@ -123,7 +124,7 @@ async def roll_dice(game_id: int, user: CurrentUser, session: DbSession):
     game = _get_active_game(session, game_id)
     _require_participant(session, game, user)
     if game.status != GameStatus.active:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This game is already finished.")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This game is no longer active.")
     if game.current_turn_user_id != user.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "It's not your turn.")
     if game.dice_value is not None:
@@ -179,7 +180,7 @@ async def move_token(game_id: int, body: MoveRequest, user: CurrentUser, session
     game = _get_active_game(session, game_id)
     _require_participant(session, game, user)
     if game.status != GameStatus.active:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This game is already finished.")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This game is no longer active.")
     if game.current_turn_user_id != user.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "It's not your turn.")
     if game.dice_value is None:

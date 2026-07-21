@@ -24,8 +24,8 @@
  *    yard, faster than a normal move.
  */
 
-import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import * as api from '../api'
 import { useAuth } from '../auth'
 import {
@@ -38,7 +38,7 @@ import {
   yardCardRect,
   yardSlotPercent,
 } from '../boardLayout'
-import { Card, ErrorNote } from '../components'
+import { Button, Card, ErrorNote } from '../components'
 import { watchGame } from '../socket'
 
 const CELL_GRID = buildCellGrid() // static board geometry, computed once
@@ -147,8 +147,14 @@ function mod360(deg) {
  * GamePage computes a new target (current + however much is needed to land
  * on the rolled face, plus a couple of extra full spins) on every fresh
  * roll and lets the CSS transition tumble the cube there — real 3D rotation
- * showing genuine faces in transit, not a simulated flat spin. */
-function DiceCube({ rotation, clickable, onRoll, blankFront }) {
+ * showing genuine faces in transit, not a simulated flat spin.
+ *
+ * `active` (whose turn it is) and `clickable` (can this exact click do
+ * something right now) are deliberately separate: `active` stays true for
+ * your whole turn, including the moment after you've rolled and are
+ * choosing a token to move, so the glow keeps identifying "this is your
+ * turn" even while the die itself is briefly disabled again. */
+function DiceCube({ rotation, active, clickable, onRoll, blankFront }) {
   return (
     <div style={{ perspective: '260px' }}>
       <button
@@ -156,7 +162,9 @@ function DiceCube({ rotation, clickable, onRoll, blankFront }) {
         onClick={onRoll}
         disabled={!clickable}
         aria-label="Roll the dice"
-        className={`relative block ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
+        className={`relative block transition-[filter,opacity] duration-300 ${
+          clickable ? 'cursor-pointer' : 'cursor-default'
+        } ${active ? '' : 'opacity-50 grayscale'}`}
         style={{
           width: CUBE_SIZE,
           height: CUBE_SIZE,
@@ -174,10 +182,10 @@ function DiceCube({ rotation, clickable, onRoll, blankFront }) {
             <DiePips value={blankFront && name === 'front' ? null : FACE_VALUE[name]} />
           </div>
         ))}
-        {clickable && (
+        {active && (
           <span
-            className="pointer-events-none absolute -inset-1.5 rounded-2xl"
-            style={{ transform: 'translateZ(1px)', boxShadow: '0 0 0 2px var(--color-pine)' }}
+            className="pointer-events-none absolute -inset-1.5 rounded-2xl animate-dice-glow"
+            style={{ transform: 'translateZ(1px)' }}
           />
         )}
       </button>
@@ -189,9 +197,9 @@ function DiceCube({ rotation, clickable, onRoll, blankFront }) {
  * line, and a round head — built to read clearly at a small size: bold flat
  * fill, a dark outline (works against every yard color, not just some), no
  * gradients or shadows to keep it crisp rather than fussy. */
-function PawnShape({ fill }) {
+function PawnShape({ fill, className = '' }) {
   return (
-    <svg viewBox="0 0 24 28" className="h-full w-full">
+    <svg viewBox="0 0 24 28" className={`h-full w-full ${className}`}>
       <path
         d="M8.6 11 L15.4 11 L18.5 24.7 Q18.7 26.2 17 26.2 L7 26.2 Q5.3 26.2 5.5 24.7 Z"
         fill={fill}
@@ -226,13 +234,7 @@ function Pawn({ token, clickable, onMove, busy, style, transitionMs }) {
         transition: `left ${transitionMs}ms linear, top ${transitionMs}ms linear`,
       }}
     >
-      {clickable && (
-        <span
-          className="pointer-events-none absolute -inset-[45%] animate-pulse rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(30,92,70,0.55), rgba(30,92,70,0) 72%)' }}
-        />
-      )}
-      <PawnShape fill={COLOR_HEX[token.color]} />
+      <PawnShape fill={COLOR_HEX[token.color]} className={clickable ? 'animate-token-shine' : ''} />
     </button>
   )
 }
@@ -263,9 +265,18 @@ function Cell({ cell }) {
   }
   if (cell.type === 'track') {
     return (
-      <div className="flex h-full w-full items-center justify-center border border-ink/15 bg-white">
+      <div
+        className={`flex h-full w-full items-center justify-center border border-ink/15 ${
+          cell.entryColor ? '' : 'bg-white'
+        }`}
+        style={cell.entryColor ? { backgroundColor: COLOR_HEX[cell.entryColor] } : undefined}
+      >
         {cell.safe && (
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-ink-soft/60">
+          <svg
+            viewBox="0 0 24 24"
+            className={`h-1/2 w-1/2 ${cell.entryColor ? 'fill-ink' : cell.starColor ? '' : 'fill-ink-soft/60'}`}
+            style={cell.starColor ? { fill: COLOR_HEX[cell.starColor] } : undefined}
+          >
             <path d="M12 1l3.09 6.26L22 8.27l-5 4.87 1.18 6.88L12 16.9l-6.18 3.12L7 13.14 2 8.27l6.91-1.01L12 1z" />
           </svg>
         )}
@@ -311,12 +322,16 @@ function TurnPanel({ players, currentTurnUserId }) {
 export default function GamePage() {
   const { gameId: gameIdParam } = useParams()
   const gameId = Number(gameIdParam)
+  const navigate = useNavigate()
   const { user: me } = useAuth()
   const [board, setBoard] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [diceRotation, setDiceRotation] = useState({ x: 0, y: 0 })
   const [diceRolling, setDiceRolling] = useState(false)
+  const [confirmingQuit, setConfirmingQuit] = useState(false)
+  // TESTING ONLY — see routes/debug.py for the full removable set.
+  const [forcedNotice, setForcedNotice] = useState('')
   const diceRotationRef = useRef({ x: 0, y: 0 })
   const prevRollSequenceRef = useRef(null)
 
@@ -364,9 +379,25 @@ export default function GamePage() {
   }, [board?.roll_sequence])
 
   // Tokens: whenever a token's real position changes, animate it along its
-  // actual path instead of just re-rendering at the new spot.
-  useEffect(() => {
+  // actual path instead of just re-rendering at the new spot. This must run
+  // BEFORE the browser paints (useLayoutEffect, not useEffect) — otherwise
+  // React paints one frame at the token's new real position with no
+  // transition (animatingTokens has no entry for it yet), and only then does
+  // this effect kick in and animate backward from there to the path's first
+  // step, producing a visible snap-then-rewind-then-replay glitch.
+  //
+  // A capture always lands on the exact square the moving token lands on,
+  // so any token sent back to the yard (-1) in this same update was
+  // necessarily captured by whichever token just moved forward in the same
+  // update. Starting both animations at once made the capture look like it
+  // fled a half-second before the capturing token actually got there — so
+  // the capturing move is kicked off first, and a captured token's own trip
+  // home is scheduled to start exactly when that move finishes landing
+  // (not before, and not with any extra pause tacked on).
+  useLayoutEffect(() => {
     if (!board) return
+
+    const movedTokens = []
     for (const token of board.tokens) {
       const prevPos = prevPositionsRef.current[token.id]
       if (prevPos === undefined) {
@@ -375,11 +406,18 @@ export default function GamePage() {
       }
       if (prevPos === token.position) continue
       prevPositionsRef.current[token.id] = token.position
+      movedTokens.push({ token, prevPos })
+    }
+    if (movedTokens.length === 0) return
 
+    // Starts one token's step-by-step animation; returns how long (ms) it
+    // takes to finish, or undefined if it's too far to sensibly animate
+    // (just snaps instead — see buildMovePath).
+    function startPath(token, prevPos) {
       if (stepTimersRef.current[token.id]) clearInterval(stepTimersRef.current[token.id])
 
       const path = buildMovePath(token, prevPos, token.position)
-      if (!path || path.steps.length === 0) continue // too far to sensibly animate — just snaps
+      if (!path || path.steps.length === 0) return undefined
 
       let i = 0
       setAnimatingTokens((prev) => ({ ...prev, [token.id]: { ...path.steps[0], ms: path.stepMs } }))
@@ -398,6 +436,24 @@ export default function GamePage() {
         setAnimatingTokens((prev) => ({ ...prev, [token.id]: { ...path.steps[i], ms: path.stepMs } }))
       }, path.stepMs)
       stepTimersRef.current[token.id] = id
+      return path.steps.length * path.stepMs
+    }
+
+    const movers = movedTokens.filter((m) => m.token.position !== -1)
+    const captured = movedTokens.filter((m) => m.token.position === -1 && m.prevPos !== -1)
+
+    let moverDurationMs = 0
+    for (const { token, prevPos } of movers) {
+      const duration = startPath(token, prevPos)
+      if (duration) moverDurationMs = Math.max(moverDurationMs, duration)
+    }
+
+    for (const { token, prevPos } of captured) {
+      if (moverDurationMs > 0) {
+        stepTimersRef.current[token.id] = setTimeout(() => startPath(token, prevPos), moverDurationMs)
+      } else {
+        startPath(token, prevPos)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board?.tokens])
@@ -426,11 +482,56 @@ export default function GamePage() {
     }
   }
 
+  // TESTING ONLY — forces the next dice roll (any game) to a specific value.
+  // Part of the removable debug-tools set described in routes/debug.py; to
+  // remove, delete this function, the forcedNotice state above, the button
+  // row that calls it below, and api.forceDice.
+  async function handleForceDice(value) {
+    setError('')
+    try {
+      await api.forceDice(value)
+      setForcedNotice(`Next roll forced to ${value}`)
+      setTimeout(() => setForcedNotice(''), 2500)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleQuit() {
+    setBusy(true)
+    setError('')
+    try {
+      await api.cancelGame(gameId)
+      await refresh()
+      setConfirmingQuit(false)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (!board) {
     return (
       <div className="space-y-4">
         <ErrorNote>{error}</ErrorNote>
         <p className="text-sm text-ink-soft">Loading board…</p>
+      </div>
+    )
+  }
+
+  if (board.status === 'cancelled') {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-extrabold">Game Cancelled</h1>
+        <Card title="Game Cancelled">
+          <p className="text-sm text-ink-soft">
+            The creator ended this game early. It won't count on the leaderboard.
+          </p>
+          <Button onClick={() => navigate('/')} style={{ marginTop: '1rem' }}>
+            Go to Dashboard
+          </Button>
+        </Card>
       </div>
     )
   }
@@ -468,12 +569,33 @@ export default function GamePage() {
     })
   }
 
+  const isCreator = board.creator_id === me.id
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-extrabold">
         {board.status === 'completed' ? 'Game Over' : "Let's Play"}
       </h1>
       <ErrorNote>{error}</ErrorNote>
+
+      {/* TESTING ONLY — admin-only, removable set described in
+          routes/debug.py. Click a number to force the next dice roll. */}
+      {me.role === 'admin' && board.status === 'active' && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-ink-soft/40 bg-parchment/50 px-3 py-2">
+          <span className="text-xs font-bold text-ink-soft">Testing: Force Next Roll</span>
+          {[1, 2, 3, 4, 5, 6].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => handleForceDice(n)}
+              className="h-7 w-7 rounded-lg border border-ink-soft/40 bg-white text-sm font-bold text-ink hover:bg-parchment"
+            >
+              {n}
+            </button>
+          ))}
+          {forcedNotice && <span className="text-xs font-bold text-pine">{forcedNotice}</span>}
+        </div>
+      )}
 
       {board.status === 'completed' ? (
         <Card title="Final Standings">
@@ -495,8 +617,31 @@ export default function GamePage() {
             Waiting on the admin to confirm this game before it counts on the leaderboard.
           </p>
         </Card>
+      ) : confirmingQuit ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-ludo-red/30 bg-ludo-red/5 px-4 py-3">
+          <p className="text-sm font-semibold text-ink">
+            Quit this game for everyone? It won't count on the leaderboard and can't be undone.
+          </p>
+          <div className="ml-auto flex gap-2">
+            <Button variant="subtle" onClick={() => setConfirmingQuit(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" disabled={busy} onClick={handleQuit}>
+              Yes, Quit Game
+            </Button>
+          </div>
+        </div>
       ) : (
-        <TurnPanel players={board.players} currentTurnUserId={board.current_turn_user_id} />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <TurnPanel players={board.players} currentTurnUserId={board.current_turn_user_id} />
+          </div>
+          {isCreator && (
+            <Button variant="subtle" onClick={() => setConfirmingQuit(true)}>
+              Quit Game
+            </Button>
+          )}
+        </div>
       )}
 
       <div
@@ -530,6 +675,7 @@ export default function GamePage() {
           {board.status === 'active' && (
             <DiceCube
               rotation={diceRotation}
+              active={myTurn}
               clickable={diceClickable}
               onRoll={handleRoll}
               blankFront={board.last_roll_value === null}

@@ -38,7 +38,7 @@ export default function Layout() {
             <Logo />
             <span>Family Ludo</span>
           </div>
-          <nav className="ml-auto flex items-center gap-1">
+          <nav className="ml-auto flex flex-wrap items-center gap-1">
             <NavItem to="/">Dashboard</NavItem>
             <NavItem to="/leaderboard">Leaderboard</NavItem>
             {user?.role === 'admin' && <NavItem to="/family">Family</NavItem>}

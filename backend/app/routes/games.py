@@ -14,6 +14,7 @@ from .. import ludo
 from ..deps import CurrentUser, DbSession
 from ..models import Game, GameInvite, GameStatus, InviteStatus, Token, User
 from ..schemas import CreateGameRequest, GameInviteOut, GameOut, ReplaceInviteRequest, UserOut
+from ..sockets import notify_board_changed
 
 router = APIRouter(prefix="/games", tags=["games"])
 
@@ -301,4 +302,25 @@ def start_game(game_id: int, user: CurrentUser, session: DbSession):
     game.current_turn_user_id = turn_order[0].user_id
     session.add(game)
     session.commit()
+    return _to_game_out(session, game)
+
+
+@router.post("/{game_id}/cancel", response_model=GameOut)
+async def cancel_game(game_id: int, user: CurrentUser, session: DbSession):
+    """Creator-only mid-game cancel (spec Section 7). The game and its
+    per-player logged stats stay in the DB for audit visibility, but a
+    cancelled game is fully excluded from all leaderboard stats — there's no
+    admin Confirm/Reject step for it, unlike a completed game."""
+    game = _get_game_or_404(session, game_id)
+    if game.creator_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the creator can quit this game.")
+    if game.status != GameStatus.active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This game isn't in progress.")
+
+    game.status = GameStatus.cancelled
+    game.current_turn_user_id = None
+    game.dice_value = None
+    session.add(game)
+    session.commit()
+    await notify_board_changed(game_id)
     return _to_game_out(session, game)

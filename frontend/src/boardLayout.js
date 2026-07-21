@@ -99,7 +99,20 @@ export function buildCellGrid() {
     for (const [r, c] of YARD_BLOCK_COORDS[color]) grid[r][c] = { type: 'yard', color }
   })
   SQUARE_COORDS.forEach(([r, c], index) => {
-    grid[r][c] = { type: 'track', safe: SAFE_SQUARE_INDICES.has(index) }
+    // Each color has 2 star squares: the entry square (index a multiple of
+    // 13 — where a token leaves the yard on a 6) and one further star 8
+    // steps into the arm. Only the entry square gets a colored cell
+    // background (with a dark star); the other star keeps a normal
+    // background but its star icon is colored to match the house instead.
+    const isSafe = SAFE_SQUARE_INDICES.has(index)
+    const isEntry = index % 13 === 0
+    const houseColor = isSafe ? COLORS[Math.floor(index / 13)] : null
+    grid[r][c] = {
+      type: 'track',
+      safe: isSafe,
+      entryColor: isEntry ? houseColor : null,
+      starColor: isSafe && !isEntry ? houseColor : null,
+    }
   })
   COLORS.forEach((color) => {
     for (const [r, c] of HOME_COLUMN_COORDS[color]) grid[r][c] = { type: 'home', color }

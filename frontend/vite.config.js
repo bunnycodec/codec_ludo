@@ -16,6 +16,7 @@ export default defineConfig({
       '/admin': backend,
       '/users': backend,
       '/games': backend,
+      '/debug': backend, // TESTING ONLY — see backend/app/routes/debug.py
       '/health': backend,
       '/socket.io': { target: backend, ws: true },
     },

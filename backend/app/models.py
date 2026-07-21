@@ -42,6 +42,9 @@ class GameStatus(str, Enum):
     # Every player has finished and been ranked. Sits here awaiting admin
     # Confirm/Reject (Phase 5) — nothing more happens to it in this phase.
     completed = "completed"
+    # The creator ended it mid-play (spec Section 7). Kept for audit
+    # visibility but fully excluded from all leaderboard stats.
+    cancelled = "cancelled"
 
 
 class InviteStatus(str, Enum):

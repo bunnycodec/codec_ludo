@@ -91,6 +91,7 @@ class BoardPlayerOut(BaseModel):
 
 class BoardOut(BaseModel):
     id: int
+    creator_id: int
     status: GameStatus
     current_turn_user_id: int | None
     dice_value: int | None

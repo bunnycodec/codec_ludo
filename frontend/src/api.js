@@ -107,6 +107,8 @@ export const startGame = (gameId) => request(`/games/${gameId}/start`, { method:
 
 export const listActiveGames = () => request('/games/active-for-me')
 
+export const cancelGame = (gameId) => request(`/games/${gameId}/cancel`, { method: 'POST' })
+
 // --- Gameplay (the live board) ---
 export const getBoard = (gameId) => request(`/games/${gameId}/board`)
 
@@ -114,3 +116,7 @@ export const rollDice = (gameId) => request(`/games/${gameId}/roll`, { method: '
 
 export const moveToken = (gameId, tokenId) =>
   request(`/games/${gameId}/move`, { method: 'POST', body: { token_id: tokenId } })
+
+// TESTING ONLY — see routes/debug.py. Part of the removable debug-tools set;
+// delete this line along with the others listed there to remove the feature.
+export const forceDice = (value) => request(`/debug/force-dice/${value}`, { method: 'POST' })

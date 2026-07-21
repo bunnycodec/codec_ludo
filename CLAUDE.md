@@ -475,6 +475,158 @@ fix — check for it if a previously-working feature suddenly throws a vague
      stale multi-turn-missed diffs) and `MAX_RETURN_STEPS = 60` (covers the
      full legitimate range).
 
+6. **A sixth round** (2026-07-20), covering glow visibility, mid-game quit, and
+   a mobile pass:
+   - **Movable-token glow got a contrast fix.** The old glow was a low-opacity
+     pine radial gradient — too close in hue to `ludo-green` and too subtle
+     against several backgrounds to read clearly. Replaced with a
+     white-core/dark-ink-ring halo (`Pawn` in GamePage.jsx) that's neutral
+     relative to all four Ludo colors, so it doesn't quietly disappear behind
+     a same-hued token or a light track cell.
+   - **A self-serve "Exit Game" for any player was requested but not
+     built** — it directly contradicts spec Section 7 ("Do not build an
+     in-app leave/forfeit feature"). Flagged to the user; they chose to keep
+     the spec as-is rather than override it, so there's still no in-app way
+     for a regular player to leave mid-game — that stays a WhatsApp-coordinate-
+     with-the-creator situation.
+   - **Creator-only "Quit Game" was built** (this *does* match spec Section
+     7 — creator/admin can cancel an in-progress game). `GameStatus` gained a
+     `cancelled` value; `POST /games/{id}/cancel` (routes/games.py,
+     creator-only, active-only) clears turn/dice state and broadcasts the
+     usual `board_updated` ping. `GET /games/{id}/board` now also accepts a
+     cancelled game (previously only active/completed) so every participant's
+     next refetch — live via the socket ping, no action needed on their end —
+     shows a "Game Cancelled" card instead of the board controls. This is a
+     small slice of Phase 5 (mid-game cancel) pulled forward; the rest of
+     Phase 5 (admin Confirm/Reject queue, points/stat aggregation) is still
+     ahead. No manual `ALTER TABLE` was needed for the new `cancelled` value —
+     unlike the *new-column* gotcha logged in Phase 4, this widens an
+     existing plain-VARCHAR `status` column's set of valid values, which
+     SQLite doesn't enforce at the schema level.
+   - **A real bug caught during testing**: the first cut of the Quit Game
+     handler did `setBoard(await api.cancelGame(gameId))`, but the cancel
+     endpoint's response model is `GameOut` (creator/invites shape), not the
+     `BoardOut` shape (players/tokens/my_movable_token_ids) the rest of
+     GamePage reads — it crashed the whole page (`board.players.filter` on
+     `undefined`) the instant a creator actually clicked quit. Fixed by
+     calling the existing `refresh()` (a plain `GET /board` refetch) after
+     the cancel call succeeds, instead of trusting the mutation response's
+     shape. Caught by driving a real two-account game via the API and
+     clicking through the actual button in a browser rather than only
+     reasoning about the endpoint in isolation — worth remembering given this
+     project still has no automated test suite.
+   - **Mobile pass**: the top nav (`Layout.jsx`) was the one real gap — on a
+     narrow phone width, "Dashboard / Leaderboard / Family (admin) / About /
+     Log Out" together are wider than the screen, and the `nav` element had
+     no `flex-wrap` of its own (only its parent header did), so it would
+     overflow instead of wrapping to a second line. Fixed by adding
+     `flex-wrap` to the `nav` itself. Everything else checked out already
+     mobile-fine by construction: the board is percentage/aspect-ratio based
+     with no fixed pixel widths anywhere in the frontend, the Dashboard stats
+     grid already steps down to 2 columns below the `sm` breakpoint, and the
+     Leaderboard's wide table already scrolls sideways inside its own
+     `overflow-x-auto` wrapper rather than stretching the page (both from
+     earlier phases). Verified via a live two-account browser session
+     (glow contrast, the full quit flow including the crash above, and the
+     live socket push landing on a second, non-creator account) plus a
+     static pass over every page's layout classes for wrap/overflow gaps;
+     a true narrow-viewport screenshot pass was cut short mid-session by
+     repeated claude-in-chrome extension disconnects and not retried.
+
+7. **A seventh round** (2026-07-20, same day): a real animation bug fix, a
+   cancelled-game screen redesign, and a new testing-only tool.
+   - **Token move animation glitch, fixed.** Reported as "the token moves
+     fast to the final box, then comes back and animates the 4 steps again."
+     Root cause: the effect that sets up `animatingTokens` (GamePage.jsx) was
+     a plain `useEffect`, which runs *after* React paints. The render right
+     after a move's `setBoard()` had no `animatingTokens` entry yet for the
+     moved token, so it painted once at the token's real final position with
+     no transition (the "fast jump"); only then did the effect run and set
+     the first path step, animating *backward* from the final position to
+     the path's start before replaying forward (the "coming back"). Fixed by
+     switching that effect to `useLayoutEffect`, which runs before paint —
+     React now reconciles the animated first-step position before the
+     browser ever paints the raw final-position frame, so only the smooth
+     path animation is ever visible.
+   - **Cancelled-game screen simplified.** Previously showed the "Game
+     Cancelled" message card with the (frozen) board still rendered
+     underneath, matching how a completed game shows standings-above-board.
+     Per feedback this was changed to an early return: a cancelled game now
+     renders *only* the message card plus a "Go to Dashboard" button — no
+     board at all, for any viewer.
+   - **New testing-only tool: forced dice rolls.** Admin-only
+     `POST /debug/force-dice/{1-6}` (routes/debug.py) sets a one-shot
+     override consumed by the next `ludo.roll_dice()` call, then reverts to
+     real randomness. Built specifically to be deleted cleanly later: it's
+     fully isolated to routes/debug.py, one small marked block in
+     `app/ludo.py`, and two lines in `main.py` (both flagged "TESTING ONLY"
+     in comments) — deleting those three things removes the feature with no
+     leftover references anywhere else. Verified via curl/requests against a
+     scratch backend: non-admin gets 403, a forced value is reflected exactly
+     on the next roll, and an out-of-range value is rejected (422) before it
+     reaches app logic.
+   - **Process change**: manual UI verification no longer happens via
+     claude-in-chrome — the extension proved unreliable mid-session in the
+     prior round. Going forward, UI-visible changes get verified by
+     build/lint plus code-level reasoning, and a concrete "what to check"
+     checklist is handed to the user instead of Claude driving a browser.
+
+8. **An eighth round** (2026-07-21): a real proxy bug, and a batch of board
+   visual/motion tweaks, several revised more than once as feedback came in.
+   - **Real bug**: the forced-dice testing button threw "Something went
+     wrong" the first time it was clicked. Cause: `vite.config.js`'s dev
+     proxy list never included `/debug`, so the request was handled by Vite
+     itself (which has no such route) instead of being forwarded to FastAPI.
+     Fixed by adding `/debug` to the proxy map alongside the other prefixes;
+     verified end-to-end by hitting the exact frontend-origin path with curl
+     through the proxy, not just the backend directly.
+   - **Movable-token glow → "shine."** The circular halo behind a movable
+     token is gone; the pawn itself now pulses `brightness()` +
+     `drop-shadow()` (`.animate-token-shine` in index.css), so the glow
+     follows the pawn's own silhouette instead of a separate shape.
+   - **Star squares recolored, then refined twice more.** Each color has 2
+     star squares (entry square + one 8 steps into the arm); both were
+     confirmed (via actual cell-adjacency computation, not assumed) to touch
+     that color's own yard. Landed on: the *entry* square gets a colored
+     cell background with a dark star icon (unchanged since first pass);
+     the *other* star keeps a normal white cell but its star icon itself is
+     colored to match the house. Star icon size was also tuned down from an
+     initial 70%-of-cell (too big) to 50% (medium) after feedback, and
+     switched from a fixed pixel size to percentage-of-cell so it scales
+     with the board instead of looking disproportionate at different sizes.
+   - **A "HOME" label was tried in 3 different places and ultimately
+     dropped.** First across the whole home-column stretch (rejected —
+     wanted it only at the actual finish point). Then narrowed to just the
+     single finish cell (rejected as invisible — a 7px label boxed into one
+     ~6.67%-wide cell was too cramped to read). Then widened/enlarged with
+     no box constraint (still invisible) — root cause turned out to be
+     structural, not sizing: each color's finish cell sits at one of the
+     four edge-middle positions *inside* the 3x3 center pinwheel block, and
+     the pinwheel `<div>` renders after it in DOM order with a solid
+     gradient background, fully covering anything under it at that spot.
+     Removed entirely rather than fighting that stacking order.
+   - **Same-cell token stacking**: tried replacing the 4-direction diamond
+     scatter with a single-diagonal cascade (meant to read more like a
+     fanned stack), but reverted byte-for-byte on request — the original
+     diamond pattern was preferred once compared side by side.
+   - **Dice now visually shows whose turn it is** — dimmed + grayscale when
+     it isn't your turn, a pulsing pine-colored ring (`.animate-dice-glow`)
+     for your *entire* turn (not just the pre-roll instant) via a new
+     `active` prop on `DiceCube`, kept deliberately separate from the
+     existing `clickable` prop (which still only governs whether a click
+     currently does anything).
+   - **Real bug in capture timing, fixed.** A captured token's trip back to
+     the yard used to start in the exact same instant as the capturing
+     token's forward move — both animations began together, so the
+     capture looked like it fled before the capturing token ever arrived.
+     The token-animation effect in GamePage.jsx now does two passes: movers
+     (tokens landing on a non-yard position) start immediately as before;
+     any token sent to the yard (-1) in that same update is understood to
+     have been captured by whichever token just moved (a capture always
+     lands on the exact square being vacated), and its own animation is
+     scheduled via `setTimeout` to start exactly when the capturing move's
+     animation finishes — no added pause, just correct sequencing.
+
 ## How to use this file
 
 Each time a build phase from Section 15 of the spec lands, this file should gain a
