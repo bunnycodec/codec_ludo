@@ -55,6 +55,26 @@ class UserStatsOut(BaseModel):
     sixes_rolled: int
 
 
+class LeaderboardEntryOut(BaseModel):
+    """One row of the Leaderboard page (spec Section 12) — UserStatsOut's
+    fields plus who they belong to and their standing. Deliberately flat
+    (no nested UserOut) since every consumer just needs a row to render."""
+
+    id: int
+    username: str
+    # Standard competition ranking: tied scores share a rank, and the next
+    # distinct score skips accordingly (e.g. 1, 1, 3) — always reflects
+    # standing by Total Points, regardless of which column the page is
+    # currently sorted by for viewing.
+    rank: int
+    total_points: int
+    games_played: int
+    wins: int
+    win_percentage: float | None
+    tokens_cut: int
+    sixes_rolled: int
+
+
 class LoginResponse(BaseModel):
     user: UserOut
     # Signals the frontend to route straight to the change-password screen.

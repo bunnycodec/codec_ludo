@@ -7,10 +7,12 @@ as each build phase lands. The authoritative requirements live in
 
 ## Status
 
-Phases 1-3 (Foundation, Dashboard shell, game creation flow) are signed off. Phase 4
-(core game engine — live board, dice, movement, classic rules, ranking) is built and
-awaiting the user's review sign-off. Phase 5 (game lifecycle: mid-game cancel,
-completion, admin Confirm/Reject, points/stat aggregation) is next.
+Phases 1-5 are signed off (Foundation, Dashboard shell, game creation flow, core
+game engine — including a long tail of follow-up polish rounds on Phase 4 — and
+game lifecycle: mid-game cancel, admin Confirm/Reject, points/stat aggregation).
+A same-day Phase 5 follow-up made usernames case-insensitive at login/creation
+(like Gmail). Phase 6 (Leaderboard wiring — the shared, sortable, all-players
+table) is built and awaiting the user's review sign-off.
 
 Section 13 is now a **two-gate cycle per phase**: (1) plan gate — describe what's
 about to be built and stop for approval, (2) build the phase, (3) review gate — stop,
@@ -626,6 +628,155 @@ fix — check for it if a previously-working feature suddenly throws a vague
      lands on the exact square being vacated), and its own animation is
      scheduled via `setTimeout` to start exactly when the capturing move's
      animation finishes — no added pause, just correct sequencing.
+
+## Phase 5 — what was built (admin Confirm/Reject, points & career stats)
+
+Mid-game cancel (spec Section 7) was already done as a Phase 4 follow-up (see round
+7 above); this phase is the rest of spec Section 9: every completed game sits in a
+**Pending Confirmation** state until the admin acts on it — **Confirm** adds its
+points/tokens-cut/sixes-rolled to each participant's career totals and counts toward
+games played; **Reject** hard-deletes the game, its invites, and its tokens, leaving
+zero trace anywhere (mirrors the existing "End Room" pattern for abandoned drafts).
+
+**Backend:**
+
+1. `models.py` — `User` gains 5 career-total columns (`total_points`,
+   `games_played`, `wins`, `tokens_cut`, `sixes_rolled`, all starting at 0). Win %
+   is deliberately *not* stored — always derived from wins/games_played wherever
+   it's shown, so it can never drift out of sync. `Game` gains `confirmed_at:
+   datetime | None` — distinguishes "completed, still in the queue" (`None`) from
+   "completed, already reviewed," without needing a new status enum value (a
+   rejected game never reaches this field at all — it's deleted instead).
+2. `ludo.py` — `POINTS_TABLE` + `points_for_rank(player_count, rank)`, the exact
+   scoring table from spec Section 10 (2p: 40/20, 3p: 70/40/20, 4p: 100/70/40/20),
+   as a pure lookup — only ever called at confirm time, never stored until then.
+3. `routes/games.py` — `GET /games/pending-confirmation` (admin-only, every
+   completed+unconfirmed game with a per-player points-if-confirmed preview),
+   `GET /games/my-pending-confirmation` (a participant's own awaiting-confirmation
+   results, spec Section 9's "tagged pending confirmation" requirement),
+   `POST /games/{id}/confirm`, `POST /games/{id}/reject`. The two new GET routes
+   had to be inserted *before* the existing bare `GET /{game_id}` route earlier in
+   the file, not appended at the end where they were first written — FastAPI
+   matches routes in registration order, and `/{game_id}` (typed `int` in the
+   function signature, but matched as "any string" at the routing layer since the
+   path string itself has no `:int` converter) would otherwise have swallowed
+   `GET /games/pending-confirmation` first and failed trying to parse
+   "pending-confirmation" as an id. The existing `/pending-invites`,
+   `/pending-created`, etc. already followed this ordering rule; the new routes
+   now do too.
+4. `routes/users.py` — `GET /users/me/stats`, deliberately **not** added as fields
+   on `UserOut` itself, since `UserOut` is embedded all over the place (game
+   invites, the family roster, admin's user list) that has no reason to carry
+   stats. A dedicated `UserStatsOut` keeps that general-purpose shape lean.
+5. `routes/gameplay.py` — `BoardOut` gains `confirmed_at` too, so the Final
+   Standings screen can say something more accurate than "waiting on the admin"
+   forever once a game actually gets confirmed.
+
+**Frontend (`Dashboard.jsx` only — no new pages):**
+
+- **"Your Stats"** now shows real numbers from `GET /users/me/stats` instead of
+  hardcoded zeros.
+- **"Pending Confirmations"** (admin-only) is wired to the real queue: each
+  game shows every player's rank, points-if-confirmed, tokens cut, and sixes
+  rolled; **Confirm** is a direct one-click action (not destructive), **Reject**
+  gets the same inline double-confirm pattern used for Delete/End Room/Quit Game
+  elsewhere, since it's an irreversible hard delete.
+- **"Games"** gained a third section beyond invites-needing-response and
+  waiting-on-creator: a participant's own completed-but-unconfirmed results,
+  tagged "Pending Confirmation" — this is the regular-player-facing half of spec
+  Section 9, distinct from the admin's own queue card.
+
+**A real incident during this build, worth remembering:** the two new columns on
+`User` and the one on `Game` are the usual "new column on an *existing* table"
+case this project has hit before (`SQLModel.metadata.create_all()` never adds
+columns to a table that already exists) — but this time, editing `models.py`
+alone was enough to take the live dev server down. The backend runs with
+`uvicorn --reload`, which restarts the app the moment a source file changes; the
+restart's own startup sequence (`seed_admin()`) immediately queries the `User`
+table, and with the new columns only in the Python model — not yet in the actual
+SQLite file — every one of those queries started failing, hanging the whole
+process rather than erroring cleanly. The dev server had to be force-killed and
+restarted by hand after the migration was applied. **The fix going forward: run
+the `ALTER TABLE` in the very same step as the model edit, before moving on to
+anything else** — not "later once the rest of the phase is built," which is what
+happened here.
+
+**How this was verified:** end-to-end against a scratch backend/DB (never the
+user's real one) — two real games driven through the actual API and instantly
+completed via the Phase 4 debug tool, then: non-admin correctly gets 403 on every
+new endpoint; confirming one game produces exactly the spec's point values (a
+2-player game: 40/20) and updates `games_played`/`wins`/`win_percentage`/
+`tokens_cut`/`sixes_rolled` precisely; the confirmed game's board correctly
+reflects `confirmed_at`; confirming the same game twice is rejected; rejecting the
+other game hard-deletes it (subsequent `GET` on it returns 404) with zero effect
+on anyone's stats. Once the schema fix above restored the user's real dev server,
+the same manual checks (reading the real SQLite file directly) confirmed all 4
+real family accounts were untouched and defaulted to 0, and that the user's own
+earlier "Finish Game Now" test game was sitting there as valid, well-formed data
+ready to exercise the real Confirm/Reject flow live.
+
+### Phase 5 follow-up (same day): case-insensitive usernames
+
+Login and account creation both now match usernames case-insensitively, like
+Gmail — "Alice", "alice", and "ALICE" all resolve to the same account, and
+creating a duplicate that only differs by case is rejected. Implemented as
+`func.lower(User.username) == body.username.lower()` at the two places that
+ever matched a username (`routes/auth.py`'s login, `routes/admin.py`'s
+create_user) — the stored value keeps whatever casing the admin originally
+typed, since only the *comparison* changed, not the data. No DB-level
+collation/index change: a case-collision race is essentially impossible in
+this app's usage pattern (one admin, creating accounts one at a time, no
+public self-registration), so the app-level check alone is sufficient without
+the added risk of another schema change so soon after the Phase 5 incident
+below. Verified against a scratch backend: all four casings of a username log
+into the same account, duplicates rejected regardless of case, original
+casing preserved for display.
+
+## Phase 6 — what was built (Leaderboard wiring)
+
+The global Leaderboard page (spec Section 12), wired to real data for the first
+time — previously a static skeleton with a permanently-empty table.
+
+**Backend:**
+
+1. `routes/leaderboard.py` (new) — `GET /leaderboard`, every registered user
+   (including accounts that haven't played yet, showing all zeros — a deliberate
+   choice, confirmed with the user rather than assumed, over only listing players
+   with at least one confirmed game) sorted by Total Points descending, with a
+   `rank` computed using standard competition ranking: tied scores share a rank,
+   and the next distinct score skips accordingly (e.g. 1, 1, 3) rather than every
+   row incrementing regardless of ties. Verified against a scratch backend with a
+   deliberately constructed tie (two players landing on the same total) — both
+   correctly showed the same rank, and the next entry correctly skipped to 5, not 4.
+2. `schemas.py` — `LeaderboardEntryOut`, deliberately flat (no nested `UserOut`)
+   since every consumer just needs one row to render.
+3. This phase needed **zero database changes** — every field it reads
+   (`total_points`, `games_played`, etc.) already existed from Phase 5. Worth
+   noting given the Phase 5 migration incident: a phase that only *reads*
+   existing columns carries none of that risk, unlike one that adds new ones.
+
+**Frontend (`Leaderboard.jsx`):**
+
+- Real rows instead of a permanently-empty table, plus a manual **Refresh**
+  button — matching the app's established refresh-on-demand pattern (stats only
+  change via an admin action elsewhere, not something worth polling for).
+- Clickable column headers re-sort the *view* by any column (click "Wins" to see
+  who's won the most, click again to flip direction) — the **Rank** column
+  itself never changes when sorting by something else, so "who's actually
+  winning overall" stays answerable regardless of which column the table is
+  currently sorted by for browsing. `win_percentage` nulls (no games played
+  yet) always sort last regardless of direction, rather than being treated as
+  0 and landing at the top of an ascending sort.
+- The logged-in viewer's own row gets a subtle background tint, so a family
+  member can spot themselves in the table at a glance without scanning every row.
+
+**A gotcha caught and fixed before it became a repeat of the Phase 5
+incident**: `vite.config.js`'s dev-server proxy needed `/leaderboard` added
+alongside the other path prefixes, or the frontend's request would be
+swallowed by Vite itself instead of reaching FastAPI — the exact same class of
+bug as the `/debug` proxy omission from an earlier round. Caught proactively
+this time by checking the proxy list the moment the new route was added,
+before it ever shipped, rather than after a "something went wrong" report.
 
 ## How to use this file
 

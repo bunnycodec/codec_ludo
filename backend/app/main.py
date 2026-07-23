@@ -14,7 +14,7 @@ import socketio
 from fastapi import FastAPI
 
 from .db import init_db
-from .routes import admin, auth, debug, gameplay, games, users
+from .routes import admin, auth, debug, gameplay, games, leaderboard, users
 from .seed import seed_admin
 from .sockets import sio
 
@@ -34,6 +34,7 @@ fastapi_app.include_router(admin.router)
 fastapi_app.include_router(users.router)
 fastapi_app.include_router(games.router)
 fastapi_app.include_router(gameplay.router)
+fastapi_app.include_router(leaderboard.router)
 fastapi_app.include_router(debug.router)  # TESTING ONLY — see routes/debug.py
 
 

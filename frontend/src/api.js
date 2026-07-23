@@ -79,6 +79,9 @@ export const listFamily = () => request('/users')
 
 export const getMyStats = () => request('/users/me/stats')
 
+// --- Leaderboard ---
+export const getLeaderboard = () => request('/leaderboard')
+
 // --- Games ---
 export const createGame = (playerIds) =>
   request('/games', { method: 'POST', body: { player_ids: playerIds } })
