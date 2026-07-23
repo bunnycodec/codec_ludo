@@ -876,8 +876,9 @@ dev proxy does.
 
 ## Deployment (live since 2026-07-23)
 
-**URL:** https://codec-ludo.onrender.com (custom domain ludo.bunnycodec.com
-being added). **Hosting:** one Render free-tier Web Service (workspace on the
+**URL:** https://ludo.bunnycodec.com (CNAME at Namecheap →
+codec-ludo.onrender.com, which also still works; Render-managed TLS cert —
+issuance needed one retry because it raced DNS propagation). **Hosting:** one Render free-tier Web Service (workspace on the
 user's GitHub-linked account), region Singapore — chosen because most players
 are in India (the admin is in the UK); the database sits in the same region
 since app↔DB latency matters more than user↔app. **Database:** Neon free-tier
@@ -901,9 +902,12 @@ exactly as through the dev proxy; no CORS anywhere. `db.py` rewrites
 `postgresql://` URLs to `postgresql+psycopg://` so Neon's string pastes
 as-is.
 
-Known free-tier behaviors, accepted by design: the service sleeps after ~15
-min idle (~30-50s cold start; family coordinates over WhatsApp anyway), and
-a $0 build-minutes spend limit is set so overage pauses builds instead of
+Known free-tier behaviors: the service would sleep after ~15 min idle
+(~30-50s cold start), but a free UptimeRobot monitor pings
+`https://ludo.bunnycodec.com/health` every 10 minutes to keep it awake —
+this fits because the free 750 instance-hours/month cover one service
+running 24/7, and it doubles as real downtime alerting to the user's email.
+A $0 build-minutes spend limit is set so overage pauses builds instead of
 charging. **Gotchas for future changes:** any schema change to an existing
 table needs a manual `ALTER TABLE` against the production Neon DB at deploy
 time (still no migration tool — Alembic is the agreed first post-launch
