@@ -98,6 +98,7 @@ def _board_out(session: DbSession, game: Game, requesting_user_id: int) -> Board
         players=players,
         tokens=token_outs,
         my_movable_token_ids=my_movable,
+        confirmed_at=game.confirmed_at,
     )
 
 

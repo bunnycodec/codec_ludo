@@ -11,9 +11,18 @@ from fastapi import APIRouter, HTTPException, status
 from sqlmodel import select
 
 from .. import ludo
-from ..deps import CurrentUser, DbSession
+from ..deps import AdminUser, CurrentUser, DbSession
 from ..models import Game, GameInvite, GameStatus, InviteStatus, Token, User
-from ..schemas import CreateGameRequest, GameInviteOut, GameOut, ReplaceInviteRequest, UserOut
+from ..schemas import (
+    CreateGameRequest,
+    GameInviteOut,
+    GameOut,
+    MyPendingConfirmationOut,
+    PendingConfirmationOut,
+    PendingConfirmationPlayerOut,
+    ReplaceInviteRequest,
+    UserOut,
+)
 from ..sockets import notify_board_changed
 
 router = APIRouter(prefix="/games", tags=["games"])
@@ -162,6 +171,80 @@ def my_active_games(user: CurrentUser, session: DbSession):
         if game.status == GameStatus.active:
             games.append(game)
     return [_to_game_out(session, game) for game in games]
+
+
+@router.get("/pending-confirmation", response_model=list[PendingConfirmationOut])
+def pending_confirmation_games(admin: AdminUser, session: DbSession):
+    """Every completed game still awaiting the admin's Confirm/Reject (spec
+    Section 9) — feeds the Dashboard's "Pending Confirmations" card. Must be
+    registered before the bare `/{game_id}` route below, or FastAPI would try
+    (and fail) to parse "pending-confirmation" as a game id."""
+    games = session.exec(
+        select(Game).where(Game.status == GameStatus.completed, Game.confirmed_at.is_(None))
+    ).all()
+
+    out = []
+    for game in games:
+        invites = session.exec(
+            select(GameInvite).where(
+                GameInvite.game_id == game.id,
+                GameInvite.status == InviteStatus.accepted,
+                GameInvite.rank.is_not(None),
+            )
+        ).all()
+        invites.sort(key=lambda i: i.rank)
+        player_count = len(invites)
+        players = [
+            PendingConfirmationPlayerOut(
+                user=_to_user_out(session.get(User, invite.user_id)),
+                color=invite.color,
+                rank=invite.rank,
+                sixes_rolled=invite.sixes_rolled,
+                tokens_cut=invite.tokens_cut,
+                points_if_confirmed=ludo.points_for_rank(player_count, invite.rank),
+            )
+            for invite in invites
+        ]
+        out.append(PendingConfirmationOut(id=game.id, started_at=game.started_at, players=players))
+    return out
+
+
+@router.get("/my-pending-confirmation", response_model=list[MyPendingConfirmationOut])
+def my_pending_confirmation_games(user: CurrentUser, session: DbSession):
+    """This user's own results in completed-but-unconfirmed games — spec
+    Section 9: "participants can see their own result... tagged pending
+    confirmation" until the admin acts on it. Same route-ordering note as
+    pending_confirmation_games above."""
+    my_invites = session.exec(
+        select(GameInvite).where(
+            GameInvite.user_id == user.id,
+            GameInvite.status == InviteStatus.accepted,
+            GameInvite.rank.is_not(None),
+        )
+    ).all()
+
+    out = []
+    for invite in my_invites:
+        game = session.get(Game, invite.game_id)
+        if game.status != GameStatus.completed or game.confirmed_at is not None:
+            continue
+        player_count = len(
+            session.exec(
+                select(GameInvite).where(
+                    GameInvite.game_id == game.id, GameInvite.status == InviteStatus.accepted
+                )
+            ).all()
+        )
+        out.append(
+            MyPendingConfirmationOut(
+                id=game.id,
+                started_at=game.started_at,
+                color=invite.color,
+                rank=invite.rank,
+                points_if_confirmed=ludo.points_for_rank(player_count, invite.rank),
+            )
+        )
+    return out
 
 
 @router.delete("/{game_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -324,3 +407,54 @@ async def cancel_game(game_id: int, user: CurrentUser, session: DbSession):
     session.commit()
     await notify_board_changed(game_id)
     return _to_game_out(session, game)
+
+
+@router.post("/{game_id}/confirm", response_model=GameOut)
+def confirm_game(game_id: int, admin: AdminUser, session: DbSession):
+    """Adds this game's points/tokens-cut/sixes-rolled to every participant's
+    career totals (spec Sections 9 & 11). The game record itself stays —
+    only marked confirmed — unlike reject, which hard-deletes it."""
+    game = _get_game_or_404(session, game_id)
+    if game.status != GameStatus.completed:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only a completed game can be confirmed.")
+    if game.confirmed_at is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This game was already confirmed.")
+
+    invites = session.exec(
+        select(GameInvite).where(
+            GameInvite.game_id == game_id, GameInvite.status == InviteStatus.accepted
+        )
+    ).all()
+    player_count = len(invites)
+    for invite in invites:
+        player = session.get(User, invite.user_id)
+        player.total_points += ludo.points_for_rank(player_count, invite.rank)
+        player.games_played += 1
+        if invite.rank == 1:
+            player.wins += 1
+        player.tokens_cut += invite.tokens_cut
+        player.sixes_rolled += invite.sixes_rolled
+        session.add(player)
+
+    game.confirmed_at = datetime.now(timezone.utc)
+    session.add(game)
+    session.commit()
+    return _to_game_out(session, game)
+
+
+@router.post("/{game_id}/reject", status_code=status.HTTP_204_NO_CONTENT)
+def reject_game(game_id: int, admin: AdminUser, session: DbSession):
+    """Hard-deletes a completed game — no audit trace, no stats change, and it
+    disappears from every participant's view too (spec Section 9)."""
+    game = _get_game_or_404(session, game_id)
+    if game.status != GameStatus.completed:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only a completed game can be rejected.")
+    if game.confirmed_at is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This game was already confirmed.")
+
+    for token in session.exec(select(Token).where(Token.game_id == game_id)).all():
+        session.delete(token)
+    for invite in session.exec(select(GameInvite).where(GameInvite.game_id == game_id)).all():
+        session.delete(invite)
+    session.delete(game)
+    session.commit()

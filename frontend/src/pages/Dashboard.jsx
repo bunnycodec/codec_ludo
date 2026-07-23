@@ -1,9 +1,10 @@
 /* Player Dashboard — the landing page after login.
  *
- * Stats are still placeholders (wired in Phase 6). Game invites are real as of
- * Phase 3: refresh-on-demand rather than push, per the spec's no-notifications
- * design and the user's preference for a manual Refresh button — the family
- * coordinates timing over WhatsApp, not in-app alerts. */
+ * Game invites are refresh-on-demand rather than push, per the spec's
+ * no-notifications design and the user's preference for a manual Refresh
+ * button — the family coordinates timing over WhatsApp, not in-app alerts.
+ * Stats and the admin Confirm/Reject queue (Phase 5) share that same
+ * refresh-on-demand pattern rather than live-updating. */
 
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -11,19 +12,21 @@ import * as api from '../api'
 import { useAuth } from '../auth'
 import { Button, Card, EmptyState, ErrorNote } from '../components'
 
-// Placeholder stat tiles — wired to real per-player totals in Phase 6.
-const STATS = [
-  { label: 'Total Points', value: 0 },
-  { label: 'Games Played', value: 0 },
-  { label: 'Wins', value: 0 },
-  { label: 'Win %', value: '—' },
-  { label: 'Tokens Cut', value: 0 },
-  { label: 'Sixes Rolled', value: 0 },
-]
+function statTiles(stats) {
+  return [
+    { label: 'Total Points', value: stats.total_points },
+    { label: 'Games Played', value: stats.games_played },
+    { label: 'Wins', value: stats.wins },
+    { label: 'Win %', value: stats.win_percentage === null ? '—' : `${Math.round(stats.win_percentage)}%` },
+    { label: 'Tokens Cut', value: stats.tokens_cut },
+    { label: 'Sixes Rolled', value: stats.sixes_rolled },
+  ]
+}
 
-function MyGames({ needsResponse, waiting, onRefresh, onRespond, busyId, error }) {
-  const loading = needsResponse === null || waiting === null
-  const empty = !loading && needsResponse.length === 0 && waiting.length === 0
+function MyGames({ needsResponse, waiting, myPending, onRefresh, onRespond, busyId, error }) {
+  const loading = needsResponse === null || waiting === null || myPending === null
+  const empty =
+    !loading && needsResponse.length === 0 && waiting.length === 0 && myPending.length === 0
 
   return (
     <Card
@@ -80,7 +83,86 @@ function MyGames({ needsResponse, waiting, onRefresh, onRespond, busyId, error }
               ))}
             </ul>
           )}
+          {myPending.length > 0 && (
+            <ul className="divide-y divide-line">
+              {myPending.map((g) => (
+                <li key={g.id} className="py-3">
+                  <span className="font-bold">Finished #{g.rank}</span>
+                  <span className="text-sm text-ink-soft"> — {g.points_if_confirmed} points if confirmed</span>
+                  <span className="ml-2 rounded-full bg-parchment px-2 py-0.5 text-xs font-bold text-ink-soft">
+                    Pending Confirmation
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
+      )}
+    </Card>
+  )
+}
+
+function PendingConfirmations({ games, onConfirm, onReject, confirmBusyId, rejectingId, setRejectingId }) {
+  const loading = games === null
+
+  return (
+    <Card
+      title="Pending Confirmations"
+      action={
+        <span className="rounded-full bg-parchment px-2.5 py-0.5 text-xs font-bold text-ink-soft">
+          {loading ? '…' : games.length}
+        </span>
+      }
+    >
+      {loading ? (
+        <p className="text-sm text-ink-soft">Loading…</p>
+      ) : games.length === 0 ? (
+        <EmptyState>Finished games awaiting your Confirm/Reject will appear here.</EmptyState>
+      ) : (
+        <ul className="divide-y divide-line">
+          {games.map((g) => (
+            <li key={g.id} className="py-3">
+              <ol className="space-y-1">
+                {g.players.map((p) => (
+                  <li key={p.user.id} className="flex items-center gap-2 text-sm">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-parchment text-xs font-extrabold">
+                      {p.rank}
+                    </span>
+                    <span className="font-bold">{p.user.username}</span>
+                    <span className="text-ink-soft">
+                      +{p.points_if_confirmed} pts · {p.tokens_cut} cut · {p.sixes_rolled} sixes
+                    </span>
+                  </li>
+                ))}
+              </ol>
+
+              {rejectingId === g.id ? (
+                <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-ludo-red/30 bg-ludo-red/5 px-4 py-3">
+                  <p className="text-sm font-semibold text-ink">
+                    Reject this game? It's deleted permanently — no stats, no trace, for anyone.
+                  </p>
+                  <div className="ml-auto flex gap-2">
+                    <Button variant="subtle" onClick={() => setRejectingId(null)}>
+                      Cancel
+                    </Button>
+                    <Button variant="danger" disabled={confirmBusyId === g.id} onClick={() => onReject(g.id)}>
+                      Yes, Reject
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button variant="subtle" onClick={() => setRejectingId(g.id)}>
+                    Reject
+                  </Button>
+                  <Button disabled={confirmBusyId === g.id} onClick={() => onConfirm(g.id)}>
+                    Confirm
+                  </Button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </Card>
   )
@@ -93,19 +175,26 @@ export default function Dashboard() {
   const [hasDraft, setHasDraft] = useState(null) // null = loading
   const [needsResponse, setNeedsResponse] = useState(null)
   const [waiting, setWaiting] = useState(null)
+  const [myPending, setMyPending] = useState(null)
+  const [stats, setStats] = useState(null)
+  const [pendingConfirmations, setPendingConfirmations] = useState(null)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
+  const [confirmBusyId, setConfirmBusyId] = useState(null)
+  const [rejectingId, setRejectingId] = useState(null)
 
   // One shared refresh: the "Create Game" vs "Enter Room" vs blocked button state
   // and the Games card must always agree, so they're driven by the same fetch.
   async function refresh() {
     setError('')
     try {
-      const [active, drafts, invited, accepted] = await Promise.all([
+      const [active, drafts, invited, accepted, mine, myStats] = await Promise.all([
         api.listActiveGames(),
         api.listPendingCreatedGames(),
         api.listPendingInvites(),
         api.listWaitingToStart(),
+        api.listMyPendingConfirmations(),
+        api.getMyStats(),
       ])
       setActiveGame(active[0] ?? false)
       setHasDraft(drafts.length > 0)
@@ -113,6 +202,11 @@ export default function Dashboard() {
         invited.map((g) => ({ game: g, invite: g.invites.find((i) => i.user.id === user.id) })),
       )
       setWaiting(accepted)
+      setMyPending(mine)
+      setStats(myStats)
+      if (user.role === 'admin') {
+        setPendingConfirmations(await api.listPendingConfirmations())
+      }
     } catch (err) {
       setError(err.message)
     }
@@ -133,6 +227,33 @@ export default function Dashboard() {
       setError(err.message)
     } finally {
       setBusyId(null)
+    }
+  }
+
+  async function handleConfirm(gameId) {
+    setConfirmBusyId(gameId)
+    setError('')
+    try {
+      await api.confirmGame(gameId)
+      await refresh()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setConfirmBusyId(null)
+    }
+  }
+
+  async function handleReject(gameId) {
+    setConfirmBusyId(gameId)
+    setError('')
+    try {
+      await api.rejectGame(gameId)
+      setRejectingId(null)
+      await refresh()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setConfirmBusyId(null)
     }
   }
 
@@ -169,22 +290,31 @@ export default function Dashboard() {
       </div>
 
       <Card title="Your Stats">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {STATS.map((s) => (
-            <div key={s.label} className="rounded-xl bg-parchment/60 px-4 py-3">
-              <div className="text-xl font-extrabold">{s.value}</div>
-              <div className="text-xs font-semibold text-ink-soft">{s.label}</div>
+        {stats === null ? (
+          <p className="text-sm text-ink-soft">Loading…</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {statTiles(stats).map((s) => (
+                <div key={s.label} className="rounded-xl bg-parchment/60 px-4 py-3">
+                  <div className="text-xl font-extrabold">{s.value}</div>
+                  <div className="text-xs font-semibold text-ink-soft">{s.label}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <p className="mt-3 text-xs text-ink-soft">
-          Stats fill in once games are played and confirmed.
-        </p>
+            {stats.games_played === 0 && (
+              <p className="mt-3 text-xs text-ink-soft">
+                Stats fill in once games are played and confirmed.
+              </p>
+            )}
+          </>
+        )}
       </Card>
 
       <MyGames
         needsResponse={needsResponse}
         waiting={waiting}
+        myPending={myPending}
         onRefresh={refresh}
         onRespond={respond}
         busyId={busyId}
@@ -192,16 +322,14 @@ export default function Dashboard() {
       />
 
       {user.role === 'admin' && (
-        <Card
-          title="Pending Confirmations"
-          action={
-            <span className="rounded-full bg-parchment px-2.5 py-0.5 text-xs font-bold text-ink-soft">
-              0
-            </span>
-          }
-        >
-          <EmptyState>Finished games awaiting your Confirm/Reject will appear here.</EmptyState>
-        </Card>
+        <PendingConfirmations
+          games={pendingConfirmations}
+          onConfirm={handleConfirm}
+          onReject={handleReject}
+          confirmBusyId={confirmBusyId}
+          rejectingId={rejectingId}
+          setRejectingId={setRejectingId}
+        />
       )}
 
       <Card title="Account">

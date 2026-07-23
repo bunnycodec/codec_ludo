@@ -40,6 +40,21 @@ class UserOut(BaseModel):
     created_at: datetime
 
 
+class UserStatsOut(BaseModel):
+    """Career totals (spec Section 11), confirmed games only. Kept separate
+    from UserOut — which is embedded all over the place (invites, family
+    roster, etc.) — so stats don't leak into contexts that don't need them."""
+
+    total_points: int
+    games_played: int
+    wins: int
+    # None (not 0) when games_played is 0 — "no games yet" isn't the same as
+    # "a confirmed 0% win rate," and the frontend already shows "—" for this.
+    win_percentage: float | None
+    tokens_cut: int
+    sixes_rolled: int
+
+
 class LoginResponse(BaseModel):
     user: UserOut
     # Signals the frontend to route straight to the change-password screen.
@@ -104,7 +119,34 @@ class BoardOut(BaseModel):
     # turn and they have a roll pending. Saves the frontend from reimplementing
     # the rules just to know which tokens are clickable.
     my_movable_token_ids: list[int]
+    # None while a completed game still sits in the admin's queue; set once
+    # they Confirm it. Lets the Final Standings screen say something more
+    # accurate than "waiting on the admin" forever.
+    confirmed_at: datetime | None
 
 
 class MoveRequest(BaseModel):
     token_id: int
+
+
+class PendingConfirmationPlayerOut(BaseModel):
+    user: UserOut
+    color: Color
+    rank: int
+    sixes_rolled: int
+    tokens_cut: int
+    points_if_confirmed: int
+
+
+class PendingConfirmationOut(BaseModel):
+    id: int
+    started_at: datetime | None
+    players: list[PendingConfirmationPlayerOut]  # sorted by rank
+
+
+class MyPendingConfirmationOut(BaseModel):
+    id: int
+    started_at: datetime | None
+    color: Color
+    rank: int
+    points_if_confirmed: int

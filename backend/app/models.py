@@ -33,6 +33,16 @@ class User(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+    # Career totals (spec Section 11) — only ever incremented at the moment
+    # the admin confirms a completed game (see routes/games.py's confirm_game).
+    # Win % is deliberately not stored here; it's derived from wins/games_played
+    # wherever it's displayed, so there's never a stale/out-of-sync percentage.
+    total_points: int = 0
+    games_played: int = 0
+    wins: int = 0
+    tokens_cut: int = 0
+    sixes_rolled: int = 0
+
 
 class GameStatus(str, Enum):
     # Still collecting invite responses — not enough accepts to start yet.
@@ -40,7 +50,7 @@ class GameStatus(str, Enum):
     # Started: the board is live, players are taking turns.
     active = "active"
     # Every player has finished and been ranked. Sits here awaiting admin
-    # Confirm/Reject (Phase 5) — nothing more happens to it in this phase.
+    # Confirm/Reject (see Game.confirmed_at below).
     completed = "completed"
     # The creator ended it mid-play (spec Section 7). Kept for audit
     # visibility but fully excluded from all leaderboard stats.
@@ -93,6 +103,11 @@ class Game(SQLModel, table=True):
     # third in a row forfeits the turn instead of granting another roll. Resets
     # to 0 whenever the turn passes to someone else.
     consecutive_sixes: int = 0
+    # Set the moment the admin confirms a completed game — distinguishes
+    # "completed, still in the admin's queue" (None) from "completed, already
+    # reviewed" (a timestamp). A *rejected* game is hard-deleted instead of
+    # ever reaching this field (spec Section 9).
+    confirmed_at: datetime | None = None
 
 
 class GameInvite(SQLModel, table=True):

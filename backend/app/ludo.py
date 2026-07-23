@@ -115,3 +115,18 @@ def assign_colors(user_ids: list[int]) -> dict[int, Color]:
     colors = COLOR_ORDER.copy()
     random.shuffle(colors)
     return dict(zip(user_ids, colors))
+
+
+# Exact scoring table from spec Section 10 — used as-is, never interpolated.
+POINTS_TABLE = {
+    2: {1: 40, 2: 20},
+    3: {1: 70, 2: 40, 3: 20},
+    4: {1: 100, 2: 70, 3: 40, 4: 20},
+}
+
+
+def points_for_rank(player_count: int, rank: int) -> int:
+    """How many points a finish of this rank is worth in a game with this many
+    accepted players. Only called at confirm time (routes/games.py) — never
+    stored until then, so the table can be the single source of truth."""
+    return POINTS_TABLE[player_count][rank]

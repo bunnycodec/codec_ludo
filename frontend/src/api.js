@@ -77,6 +77,8 @@ export const deleteUser = (userId) => request(`/admin/users/${userId}`, { method
 // --- Family roster (any logged-in user, for picking invitees) ---
 export const listFamily = () => request('/users')
 
+export const getMyStats = () => request('/users/me/stats')
+
 // --- Games ---
 export const createGame = (playerIds) =>
   request('/games', { method: 'POST', body: { player_ids: playerIds } })
@@ -109,6 +111,15 @@ export const listActiveGames = () => request('/games/active-for-me')
 
 export const cancelGame = (gameId) => request(`/games/${gameId}/cancel`, { method: 'POST' })
 
+// --- Game lifecycle: admin Confirm/Reject queue (spec Section 9) ---
+export const listPendingConfirmations = () => request('/games/pending-confirmation')
+
+export const listMyPendingConfirmations = () => request('/games/my-pending-confirmation')
+
+export const confirmGame = (gameId) => request(`/games/${gameId}/confirm`, { method: 'POST' })
+
+export const rejectGame = (gameId) => request(`/games/${gameId}/reject`, { method: 'POST' })
+
 // --- Gameplay (the live board) ---
 export const getBoard = (gameId) => request(`/games/${gameId}/board`)
 
@@ -118,5 +129,8 @@ export const moveToken = (gameId, tokenId) =>
   request(`/games/${gameId}/move`, { method: 'POST', body: { token_id: tokenId } })
 
 // TESTING ONLY — see routes/debug.py. Part of the removable debug-tools set;
-// delete this line along with the others listed there to remove the feature.
+// delete these lines along with the others listed there to remove the feature.
 export const forceDice = (value) => request(`/debug/force-dice/${value}`, { method: 'POST' })
+
+export const finishGameNow = (gameId) =>
+  request(`/debug/games/${gameId}/finish-now`, { method: 'POST' })

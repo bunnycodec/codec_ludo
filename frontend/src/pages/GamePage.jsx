@@ -520,6 +520,19 @@ export default function GamePage() {
     }
   }
 
+  // TESTING ONLY — instantly completes this game so the Game Over / Final
+  // Standings screen can be previewed without playing a full game out. Same
+  // removable set as handleForceDice above, plus api.finishGameNow.
+  async function handleFinishNow() {
+    setError('')
+    try {
+      await api.finishGameNow(gameId)
+      await refresh()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   async function handleQuit() {
     setBusy(true)
     setError('')
@@ -602,7 +615,8 @@ export default function GamePage() {
       <ErrorNote>{error}</ErrorNote>
 
       {/* TESTING ONLY — admin-only, removable set described in
-          routes/debug.py. Click a number to force the next dice roll. */}
+          routes/debug.py. Force the next dice roll, or skip straight to the
+          Game Over screen to preview it without playing a full game out. */}
       {me.role === 'admin' && board.status === 'active' && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-ink-soft/40 bg-parchment/50 px-3 py-2">
           <span className="text-xs font-bold text-ink-soft">Testing: Force Next Roll</span>
@@ -616,6 +630,13 @@ export default function GamePage() {
               {n}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={handleFinishNow}
+            className="rounded-lg border border-ink-soft/40 bg-white px-2 py-1 text-xs font-bold text-ink hover:bg-parchment"
+          >
+            Finish Game Now
+          </button>
           {forcedNotice && <span className="text-xs font-bold text-pine">{forcedNotice}</span>}
         </div>
       )}
@@ -637,7 +658,9 @@ export default function GamePage() {
             ))}
           </ol>
           <p className="mt-3 text-xs text-ink-soft">
-            Waiting on the admin to confirm this game before it counts on the leaderboard.
+            {board.confirmed_at
+              ? 'Confirmed — this game counts on the leaderboard.'
+              : 'Waiting on the admin to confirm this game before it counts on the leaderboard.'}
           </p>
         </Card>
       ) : confirmingQuit ? (
