@@ -1,7 +1,7 @@
 [project]
-name = "family-ludo-backend"
+name = "codec-ludo-backend"
 version = "0.1.0"
-description = "Backend for the private Family Ludo app"
+description = "Backend for Codec Ludo, a private invite-only Ludo game"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

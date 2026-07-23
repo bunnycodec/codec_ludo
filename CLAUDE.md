@@ -7,7 +7,7 @@
 This file is a living explainer for the project, written for someone who wants to
 understand every file and decision without writing code themselves. It gets updated
 as each build phase lands. The authoritative requirements live in
-`family-ludo-prompt.md` — this file explains the *how* and *why* behind them.
+`codec-ludo-prompt.md` — this file explains the *how* and *why* behind them.
 
 ## Status
 

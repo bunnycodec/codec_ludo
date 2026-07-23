@@ -1,4 +1,6 @@
-# Family Ludo — Build Specification
+# Codec Ludo — Build Specification
+
+> Written under the project's original working name "Family Ludo" — the official name is now **Codec Ludo**, and it's invite-only for anyone the admin adds, not only family.
 
 This document is the complete, agreed specification for a private, account-based, real-time Ludo web app built for a family spread across different cities. Follow the **Development Process Rules (Section 13)** strictly — this is not a build-in-one-go project.
 
