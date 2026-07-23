@@ -1,7 +1,7 @@
 """Admin-only account management: create players, reset passwords, list family."""
 
 from fastapi import APIRouter, HTTPException, status
-from sqlmodel import select
+from sqlmodel import func, select
 
 from ..auth import hash_password
 from ..deps import AdminUser, DbSession
@@ -19,7 +19,11 @@ def list_users(admin: AdminUser, session: DbSession):
 
 @router.post("/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(body: CreateUserRequest, admin: AdminUser, session: DbSession):
-    exists = session.exec(select(User).where(User.username == body.username)).first()
+    # Case-insensitive uniqueness (like Gmail) — "Alice" and "alice" can't both
+    # exist, matching the same case-insensitive rule login uses.
+    exists = session.exec(
+        select(User).where(func.lower(User.username) == body.username.lower())
+    ).first()
     if exists:
         raise HTTPException(status.HTTP_409_CONFLICT, "Username already taken.")
 

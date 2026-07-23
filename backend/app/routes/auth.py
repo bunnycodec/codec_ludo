@@ -1,7 +1,7 @@
 """Login, logout, change-password, and "who am I" endpoints."""
 
 from fastapi import APIRouter, HTTPException, Response, status
-from sqlmodel import select
+from sqlmodel import func, select
 
 from ..auth import (
     COOKIE_NAME,
@@ -31,7 +31,12 @@ def set_session_cookie(response: Response, token: str) -> None:
 
 @router.post("/login", response_model=LoginResponse)
 def login(body: LoginRequest, response: Response, session: DbSession):
-    user = session.exec(select(User).where(User.username == body.username)).first()
+    # Username matching is case-insensitive at login (like Gmail) — the stored
+    # casing (whatever the admin typed when creating the account) is still what
+    # displays everywhere; only the comparison ignores case.
+    user = session.exec(
+        select(User).where(func.lower(User.username) == body.username.lower())
+    ).first()
     # Same error for wrong username and wrong password, so an attacker can't probe
     # which usernames exist.
     if user is None or not verify_password(body.password, user.password_hash):
