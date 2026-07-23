@@ -10,6 +10,12 @@ __pycache__/
 # Local dev database
 *.db
 
+# macOS Finder metadata
+.DS_Store
+
+# Local-only holding area (e.g. source images for the About page) — never committed
+Archive/
+
 # Node (frontend, later phases)
 node_modules/
 dist/
