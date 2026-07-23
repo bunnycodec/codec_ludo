@@ -72,7 +72,24 @@ def legal_move_token_ids(tokens: list, dice_value: int) -> list[int]:
     return movable
 
 
+# --- DEV-ONLY: forced-dice hook ---------------------------------------------
+# Lets an admin force the *next* roll, for manual testing. Only reachable via
+# routes/debug.py, which is only registered when DEBUG_TOOLS is set (local
+# .env only — never on Render), so this stays inert in production.
+_forced_next_roll: int | None = None
+
+
+def force_next_roll(value: int) -> None:
+    global _forced_next_roll
+    _forced_next_roll = value
+
+
 def roll_dice() -> int:
+    global _forced_next_roll
+    if _forced_next_roll is not None:
+        value = _forced_next_roll
+        _forced_next_roll = None
+        return value
     return random.randint(1, 6)
 
 

@@ -182,8 +182,31 @@ export function trackCell(color, position) {
 
 /** Board-wide {left, top} percentages for any token, yard or track — the one
  * function GamePage needs to know where to draw a token. */
+// The finished position (matches ludo.py's FINISH_POSITION on the backend).
+export const FINISH_POSITION = 56
+
+/** Where a FINISHED token rests: a small cluster tucked inside the center
+ * square, in its color's own wedge of the pinwheel. Full-size pawns standing
+ * on the finish cell itself overflowed the center block and looked like they
+ * were spilling back out of home — instead, each color's four finished pawns
+ * line up (by token index) along their wedge's outer edge, well inside the
+ * center square's bounds. The geometry is derived, not hand-placed: the
+ * direction from board center to that color's finish cell says which wedge is
+ * theirs; the row of slots runs perpendicular to it. */
+export function finishedSlotPercent(color, index) {
+  const [r, c] = trackCell(color, FINISH_POSITION)
+  const ux = Math.sign(c - 7) // outward: which side of center this wedge faces
+  const uy = Math.sign(r - 7)
+  const along = [-3.9, -1.3, 1.3, 3.9][index] // spread across the wedge's width
+  return {
+    left: 50 + ux * 7 + -uy * along,
+    top: 50 + uy * 7 + ux * along,
+  }
+}
+
 export function tokenPercent(token) {
   if (token.position === -1) return yardSlotPercent(token.color, token.index)
+  if (token.position === FINISH_POSITION) return finishedSlotPercent(token.color, token.index)
   return trackPercent(token.color, token.position)
 }
 

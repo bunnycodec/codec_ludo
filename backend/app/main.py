@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .config import settings
 from .db import init_db
 from .routes import admin, auth, gameplay, games, leaderboard, users
 from .seed import seed_admin
@@ -38,6 +39,11 @@ fastapi_app.include_router(users.router)
 fastapi_app.include_router(games.router)
 fastapi_app.include_router(gameplay.router)
 fastapi_app.include_router(leaderboard.router)
+
+if settings.debug_tools:  # DEV-ONLY — see routes/debug.py; never set on Render
+    from .routes import debug
+
+    fastapi_app.include_router(debug.router)
 
 
 @fastapi_app.get("/health", tags=["meta"])

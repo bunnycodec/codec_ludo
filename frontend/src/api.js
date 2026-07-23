@@ -130,3 +130,10 @@ export const rollDice = (gameId) => request(`/games/${gameId}/roll`, { method: '
 
 export const moveToken = (gameId, tokenId) =>
   request(`/games/${gameId}/move`, { method: 'POST', body: { token_id: tokenId } })
+
+// DEV-ONLY — the backend only serves /debug when DEBUG_TOOLS is set (local
+// .env, never on Render), and the UI calling these only renders in dev mode.
+export const forceDice = (value) => request(`/debug/force-dice/${value}`, { method: 'POST' })
+
+export const finishGameNow = (gameId) =>
+  request(`/debug/games/${gameId}/finish-now`, { method: 'POST' })

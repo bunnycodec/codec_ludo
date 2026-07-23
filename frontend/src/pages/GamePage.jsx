@@ -33,6 +33,8 @@ import {
   CENTER_PINWHEEL_ORDER,
   COLOR_HEX,
   COLORS,
+  FINISH_POSITION,
+  finishedSlotPercent,
   tokenPercent,
   trackPercent,
   yardCardRect,
@@ -86,6 +88,9 @@ function buildMovePath(token, fromPos, toPos) {
   const cells = []
   for (let p = fromPos + 1; p <= toPos; p++) cells.push(trackPercent(token.color, p))
   if (cells.length > MAX_FORWARD_STEPS) return null
+  // A finishing move ends at the token's small rest slot inside the center
+  // square (where it will render from now on), not on the finish cell itself.
+  if (toPos === FINISH_POSITION) cells.push(finishedSlotPercent(token.color, token.index))
   return { steps: cells, stepMs: FORWARD_STEP_MS }
 }
 
@@ -239,7 +244,8 @@ function Pawn({ token, clickable, onMove, busy, style, transitionMs }) {
       }`}
       style={{
         ...style,
-        transition: `left ${transitionMs}ms linear, top ${transitionMs}ms linear`,
+        // width/height always ease so a pawn shrinks smoothly as it finishes.
+        transition: `left ${transitionMs}ms linear, top ${transitionMs}ms linear, width 250ms ease, height 250ms ease`,
       }}
     >
       <PawnShape fill={COLOR_HEX[token.color]} className={clickable ? 'animate-token-shine' : ''} />
@@ -338,6 +344,9 @@ export default function GamePage() {
   const [diceRotation, setDiceRotation] = useState({ x: 0, y: 0 })
   const [diceRolling, setDiceRolling] = useState(false)
   const [confirmingQuit, setConfirmingQuit] = useState(false)
+  // DEV-ONLY testing tools (see routes/debug.py) — this state and the
+  // handlers/JSX below only ever activate in Vite dev mode.
+  const [forcedNotice, setForcedNotice] = useState('')
   const diceRotationRef = useRef({ x: 0, y: 0 })
   const prevRollSequenceRef = useRef(null)
 
@@ -457,6 +466,15 @@ export default function GamePage() {
 
     for (const { token, prevPos } of captured) {
       if (moverDurationMs > 0) {
+        // Park the captured token on the square it was caught on while it
+        // waits for the capturing token's animation to arrive — its real
+        // position is already the yard, so without this hold it would render
+        // "already home" for the whole wait, then jump back out to replay the
+        // return trip (the bug reported as a token flashing home and back).
+        const path = buildMovePath(token, prevPos, token.position)
+        if (path && path.steps.length > 0) {
+          setAnimatingTokens((prev) => ({ ...prev, [token.id]: { ...path.steps[0], ms: 0 } }))
+        }
         stepTimersRef.current[token.id] = setTimeout(() => startPath(token, prevPos), moverDurationMs)
       } else {
         startPath(token, prevPos)
@@ -500,6 +518,29 @@ export default function GamePage() {
       setError(err.message)
     } finally {
       setBusy(false)
+    }
+  }
+
+  // DEV-ONLY — forces the next dice roll to a specific value.
+  async function handleForceDice(value) {
+    setError('')
+    try {
+      await api.forceDice(value)
+      setForcedNotice(`Next roll forced to ${value}`)
+      setTimeout(() => setForcedNotice(''), 2500)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  // DEV-ONLY — instantly completes this game to preview the Game Over screen.
+  async function handleFinishNow() {
+    setError('')
+    try {
+      await api.finishGameNow(gameId)
+      await refresh()
+    } catch (err) {
+      setError(err.message)
     }
   }
 
@@ -562,7 +603,9 @@ export default function GamePage() {
   }
   const groupByCell = {}
   for (const t of board.tokens) {
-    if (t.position === -1) continue
+    // Yard tokens have fixed slots; finished tokens each have their own rest
+    // slot inside the center square — neither needs fan-out nudges.
+    if (t.position === -1 || t.position === FINISH_POSITION) continue
     const { left, top } = tokenPercent(t)
     const key = `${left},${top}`
     ;(groupByCell[key] ??= []).push(t)
@@ -583,6 +626,32 @@ export default function GamePage() {
         {board.status === 'completed' ? 'Game Over' : "Let's Play"}
       </h1>
       <ErrorNote>{error}</ErrorNote>
+
+      {/* DEV-ONLY testing row — import.meta.env.DEV is always false in a
+          production build, so this can never appear on the live site. */}
+      {import.meta.env.DEV && me.role === 'admin' && board.status === 'active' && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-ink-soft/40 bg-parchment/50 px-3 py-2">
+          <span className="text-xs font-bold text-ink-soft">Testing: Force Next Roll</span>
+          {[1, 2, 3, 4, 5, 6].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => handleForceDice(n)}
+              className="h-7 w-7 rounded-lg border border-ink-soft/40 bg-white text-sm font-bold text-ink hover:bg-parchment"
+            >
+              {n}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={handleFinishNow}
+            className="rounded-lg border border-ink-soft/40 bg-white px-2 py-1 text-xs font-bold text-ink hover:bg-parchment"
+          >
+            Finish Game Now
+          </button>
+          {forcedNotice && <span className="text-xs font-bold text-pine">{forcedNotice}</span>}
+        </div>
+      )}
 
       {board.status === 'completed' ? (
         <Card title="Final Standings">
@@ -685,6 +754,9 @@ export default function GamePage() {
           const { left, top } = animating ?? tokenPercent(token)
           const [dx, dy] = animating ? [0, 0] : (offsetByTokenId[token.id] ?? [0, 0])
           const clickable = myTurn && movable.has(token.id)
+          // Finished pawns rest small inside the center square — full size
+          // there overflowed the center block (see finishedSlotPercent).
+          const size = token.position === FINISH_POSITION ? '3%' : '5%'
           return (
             <Pawn
               key={token.id}
@@ -696,8 +768,8 @@ export default function GamePage() {
               style={{
                 left: `${left + dx}%`,
                 top: `${top + dy}%`,
-                width: '5%',
-                height: '5%',
+                width: size,
+                height: size,
                 zIndex: 10 + i,
               }}
             />
