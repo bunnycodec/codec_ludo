@@ -80,6 +80,31 @@ export function Select({ label, children, ...props }) {
   )
 }
 
+/* Inline destructive-action confirmation — the app-wide pattern for anything
+ * irreversible (delete a member, reject a game, end a room, quit a game): no
+ * modal, just a red strip appearing in place with an explicit yes/cancel. */
+export function ConfirmBar({ message, confirmLabel, onConfirm, onCancel, busy, className = '' }) {
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-3 rounded-xl border border-ludo-red/30 bg-ludo-red/5 px-4 py-3 ${className}`}
+    >
+      <p className="text-sm font-semibold text-ink">{message}</p>
+      <div className="ml-auto flex gap-2">
+        <Button variant="subtle" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="danger" disabled={busy} onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+export function Loading() {
+  return <p className="text-sm text-ink-soft">Loading…</p>
+}
+
 export function ErrorNote({ children }) {
   if (!children) return null
   return (

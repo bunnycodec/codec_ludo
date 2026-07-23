@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'react'
 import * as api from '../api'
 import { useAuth } from '../auth'
-import { Button, Card, EmptyState, ErrorNote } from '../components'
+import { Button, Card, ErrorNote, Loading } from '../components'
 
 const COLUMNS = [
   { key: 'rank', label: 'Rank' },
@@ -80,9 +80,7 @@ export default function Leaderboard() {
       <ErrorNote>{error}</ErrorNote>
       <Card>
         {entries === null ? (
-          <p className="text-sm text-ink-soft">Loading…</p>
-        ) : entries.length === 0 ? (
-          <EmptyState>No confirmed games yet — the table fills in once games are played and the admin confirms them.</EmptyState>
+          <Loading />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

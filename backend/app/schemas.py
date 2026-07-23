@@ -55,9 +55,9 @@ class UserStatsOut(BaseModel):
     sixes_rolled: int
 
 
-class LeaderboardEntryOut(BaseModel):
+class LeaderboardEntryOut(UserStatsOut):
     """One row of the Leaderboard page (spec Section 12) — UserStatsOut's
-    fields plus who they belong to and their standing. Deliberately flat
+    stats (inherited) plus who they belong to and their standing. Still flat
     (no nested UserOut) since every consumer just needs a row to render."""
 
     id: int
@@ -67,12 +67,6 @@ class LeaderboardEntryOut(BaseModel):
     # standing by Total Points, regardless of which column the page is
     # currently sorted by for viewing.
     rank: int
-    total_points: int
-    games_played: int
-    wins: int
-    win_percentage: float | None
-    tokens_cut: int
-    sixes_rolled: int
 
 
 class LoginResponse(BaseModel):

@@ -130,10 +130,3 @@ export const rollDice = (gameId) => request(`/games/${gameId}/roll`, { method: '
 
 export const moveToken = (gameId, tokenId) =>
   request(`/games/${gameId}/move`, { method: 'POST', body: { token_id: tokenId } })
-
-// TESTING ONLY — see routes/debug.py. Part of the removable debug-tools set;
-// delete these lines along with the others listed there to remove the feature.
-export const forceDice = (value) => request(`/debug/force-dice/${value}`, { method: 'POST' })
-
-export const finishGameNow = (gameId) =>
-  request(`/debug/games/${gameId}/finish-now`, { method: 'POST' })

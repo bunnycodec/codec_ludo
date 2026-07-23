@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import * as api from '../api'
 import { useAuth } from '../auth'
-import { Button, Card, EmptyState, ErrorNote } from '../components'
+import { Button, Card, ConfirmBar, EmptyState, ErrorNote, Loading } from '../components'
 
 function statTiles(stats) {
   return [
@@ -39,7 +39,7 @@ function MyGames({ needsResponse, waiting, myPending, onRefresh, onRespond, busy
     >
       <ErrorNote>{error}</ErrorNote>
       {loading ? (
-        <p className="text-sm text-ink-soft">Loading…</p>
+        <Loading />
       ) : empty ? (
         <EmptyState>No pending invites or games waiting to start. Hit refresh if you're expecting one.</EmptyState>
       ) : (
@@ -115,7 +115,7 @@ function PendingConfirmations({ games, onConfirm, onReject, confirmBusyId, rejec
       }
     >
       {loading ? (
-        <p className="text-sm text-ink-soft">Loading…</p>
+        <Loading />
       ) : games.length === 0 ? (
         <EmptyState>Finished games awaiting your Confirm/Reject will appear here.</EmptyState>
       ) : (
@@ -137,19 +137,14 @@ function PendingConfirmations({ games, onConfirm, onReject, confirmBusyId, rejec
               </ol>
 
               {rejectingId === g.id ? (
-                <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-ludo-red/30 bg-ludo-red/5 px-4 py-3">
-                  <p className="text-sm font-semibold text-ink">
-                    Reject this game? It's deleted permanently — no stats, no trace, for anyone.
-                  </p>
-                  <div className="ml-auto flex gap-2">
-                    <Button variant="subtle" onClick={() => setRejectingId(null)}>
-                      Cancel
-                    </Button>
-                    <Button variant="danger" disabled={confirmBusyId === g.id} onClick={() => onReject(g.id)}>
-                      Yes, Reject
-                    </Button>
-                  </div>
-                </div>
+                <ConfirmBar
+                  className="mt-3"
+                  message="Reject this game? It's deleted permanently — no stats, no trace, for anyone."
+                  confirmLabel="Yes, Reject"
+                  busy={confirmBusyId === g.id}
+                  onCancel={() => setRejectingId(null)}
+                  onConfirm={() => onReject(g.id)}
+                />
               ) : (
                 <div className="mt-3 flex justify-end gap-2">
                   <Button variant="subtle" onClick={() => setRejectingId(g.id)}>
@@ -291,7 +286,7 @@ export default function Dashboard() {
 
       <Card title="Your Stats">
         {stats === null ? (
-          <p className="text-sm text-ink-soft">Loading…</p>
+          <Loading />
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">

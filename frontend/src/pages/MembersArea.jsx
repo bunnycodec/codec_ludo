@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react'
 import * as api from '../api'
 import { useAuth } from '../auth'
-import { Button, Card, ErrorNote, Field, SuccessNote } from '../components'
+import { Button, Card, ConfirmBar, ErrorNote, Field, Loading, SuccessNote } from '../components'
 
 export default function MembersArea() {
   const { user: me } = useAuth()
@@ -123,7 +123,7 @@ export default function MembersArea() {
 
       <Card title="Members">
         {users === null ? (
-          <p className="text-sm text-ink-soft">Loading…</p>
+          <Loading />
         ) : (
           <ul className="divide-y divide-line">
             {users.map((u) => (
@@ -188,24 +188,14 @@ export default function MembersArea() {
                   </form>
                 )}
                 {deleteId === u.id && (
-                  <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-ludo-red/30 bg-ludo-red/5 px-4 py-3">
-                    <p className="text-sm font-semibold text-ink">
-                      Delete "{u.username}"? This removes their account permanently — it can't
-                      be undone.
-                    </p>
-                    <div className="ml-auto flex gap-2">
-                      <Button variant="subtle" onClick={() => setDeleteId(null)}>
-                        Cancel
-                      </Button>
-                      <Button
-                        variant="danger"
-                        disabled={busy}
-                        onClick={() => handleDelete(u.id, u.username)}
-                      >
-                        Yes, Delete
-                      </Button>
-                    </div>
-                  </div>
+                  <ConfirmBar
+                    className="mt-3"
+                    message={`Delete "${u.username}"? This removes their account permanently — it can't be undone.`}
+                    confirmLabel="Yes, Delete"
+                    busy={busy}
+                    onCancel={() => setDeleteId(null)}
+                    onConfirm={() => handleDelete(u.id, u.username)}
+                  />
                 )}
               </li>
             ))}

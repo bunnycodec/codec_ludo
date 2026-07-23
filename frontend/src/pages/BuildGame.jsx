@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import * as api from '../api'
 import { useAuth } from '../auth'
-import { Button, Card, ErrorNote, Select, SuccessNote } from '../components'
+import { Button, Card, ConfirmBar, ErrorNote, Loading, Select, SuccessNote } from '../components'
 
 const STATUS_STYLES = {
   pending: 'bg-parchment text-ink-soft',
@@ -166,19 +166,14 @@ function DraftGame({ game, setGame, members, onEnded }) {
       <SuccessNote>{notice}</SuccessNote>
 
       {confirmingEnd ? (
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-ludo-red/30 bg-ludo-red/5 px-4 py-3">
-          <p className="text-sm font-semibold text-ink">
-            End this room? Every invite is cancelled and this can't be undone.
-          </p>
-          <div className="ml-auto flex gap-2">
-            <Button variant="subtle" onClick={() => setConfirmingEnd(false)}>
-              Cancel
-            </Button>
-            <Button variant="danger" disabled={busy} onClick={handleEndRoom}>
-              Yes, End It
-            </Button>
-          </div>
-        </div>
+        <ConfirmBar
+          className="mt-4"
+          message="End this room? Every invite is cancelled and this can't be undone."
+          confirmLabel="Yes, End It"
+          busy={busy}
+          onCancel={() => setConfirmingEnd(false)}
+          onConfirm={handleEndRoom}
+        />
       ) : (
         <div className="mt-4 space-y-2">
           <Button onClick={handleStart} disabled={!canStart || busy} style={{ width: '100%' }}>
@@ -282,7 +277,7 @@ export default function BuildGame() {
       <h1 className="text-2xl font-extrabold">Build the Game</h1>
       <ErrorNote>{error}</ErrorNote>
       {loading ? (
-        <p className="text-sm text-ink-soft">Loading…</p>
+        <Loading />
       ) : game ? (
         <DraftGame game={game} setGame={setGame} members={members} onEnded={() => setGame(null)} />
       ) : (

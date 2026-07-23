@@ -15,10 +15,12 @@ Phases 1-5 are signed off (Foundation, Dashboard shell, game creation flow, core
 game engine — including a long tail of follow-up polish rounds on Phase 4 — and
 game lifecycle: mid-game cancel, admin Confirm/Reject, points/stat aggregation).
 A same-day Phase 5 follow-up made usernames case-insensitive at login/creation
-(like Gmail). Phase 6 (Leaderboard wiring) is signed off. Phase 7 (the final
-visual/UX polish pass, plus the Codec Ludo rebrand, new app icon, Members
-Area rename, and the real About page) is built and awaiting the user's review
-sign-off. After Phase 7: deployment (Render + Postgres + the user's domain).
+(like Gmail). Phase 6 (Leaderboard wiring) and Phase 7 (visual/UX polish +
+the Codec Ludo rebrand, new app icon, Members Area rename, real About page)
+are signed off. A pre-deployment hardening pass (debug tools removed, code
+dedupe — see its section below) is built and awaiting review sign-off. The
+GitHub repo is renamed to `bunnycodec/codec_ludo`. Next: deployment (Render +
+Neon Postgres + ludo.bunnycodec.com).
 
 Section 13 is now a **two-gate cycle per phase**: (1) plan gate — describe what's
 about to be built and stop for approval, (2) build the phase, (3) review gate — stop,
@@ -833,6 +835,43 @@ motion system from Phase 4.
 `/openapi.json` title. ESLint turned out to not actually be configured in
 this project (no flat-config file) — flagged rather than silently skipped;
 worth setting up someday but not a Phase 7 concern.
+
+## Pre-deployment hardening (after Phase 7, before deploy)
+
+Requested as "make it production ready" ahead of the Render deployment.
+
+**The testing-only debug tools are gone.** Force-dice and finish-now would
+have let any admin rig or skip real games in production. The Phase-4-era
+design goal of "built for clean deletion" paid off: `routes/debug.py`
+deleted, the forced-roll block in `ludo.py` collapsed back to a one-line
+`roll_dice()`, two wiring lines out of `main.py`, the `/debug` proxy line
+out of `vite.config.js`, `forceDice`/`finishGameNow` out of `api.js`, and
+the force-roll button row + handlers out of `GamePage.jsx`. Verified against
+the running server: `/debug/*` returns 404 and the OpenAPI route list
+contains no debug paths. Tradeoff, stated openly: future manual testing
+loses dice control — if that hurts later, the git history has the full
+feature to resurrect temporarily on a branch.
+
+**Deduplication pass:**
+
+- `ConfirmBar` (components.jsx) — the inline red confirm strip was hand-built
+  four times (delete member, reject game, end room, quit game); now one
+  shared component. Purely presentational extraction, no behavior change.
+- `Loading` (components.jsx) — the repeated "Loading…" paragraph, now shared
+  (GamePage keeps its distinct "Loading board…" text).
+- `LeaderboardEntryOut` now inherits `UserStatsOut` instead of repeating all
+  six stat fields; the JSON wire shape is unchanged (verified via the
+  OpenAPI schema's required-field list before/after).
+- The Leaderboard page's empty state was removed — unreachable by
+  construction, since the roster always contains at least the seeded admin
+  (flagged at the Phase 6 review as dead code, cleaned up now).
+
+**Production-readiness facts confirmed while scanning** (no changes needed):
+the session cookie is already `httponly` + `samesite=lax` with a
+`cookie_secure` setting to flip on under HTTPS; `jwt_secret` and seed admin
+credentials already come from env vars; the backend needs no CORS config
+since production will serve frontend and API from one origin, same as the
+dev proxy does.
 
 ## How to use this file
 

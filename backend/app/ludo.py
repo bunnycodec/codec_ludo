@@ -72,27 +72,7 @@ def legal_move_token_ids(tokens: list, dice_value: int) -> list[int]:
     return movable
 
 
-# --- TESTING ONLY: forced-dice hook -----------------------------------------
-# Lets an admin force the *next* roll to a specific value, for manual testing.
-# Not part of the spec. See routes/debug.py's docstring for the full list of
-# every file this feature touches and what to delete to remove it entirely.
-_forced_next_roll: int | None = None
-
-
-def force_next_roll(value: int) -> None:
-    global _forced_next_roll
-    _forced_next_roll = value
-
-
-# --- end testing-only block --------------------------------------------------
-
-
 def roll_dice() -> int:
-    global _forced_next_roll
-    if _forced_next_roll is not None:
-        value = _forced_next_roll
-        _forced_next_roll = None
-        return value
     return random.randint(1, 6)
 
 

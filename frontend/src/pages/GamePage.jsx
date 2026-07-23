@@ -38,7 +38,7 @@ import {
   yardCardRect,
   yardSlotPercent,
 } from '../boardLayout'
-import { Button, Card, ErrorNote } from '../components'
+import { Button, Card, ConfirmBar, ErrorNote } from '../components'
 import { watchGame } from '../socket'
 
 const CELL_GRID = buildCellGrid() // static board geometry, computed once
@@ -338,8 +338,6 @@ export default function GamePage() {
   const [diceRotation, setDiceRotation] = useState({ x: 0, y: 0 })
   const [diceRolling, setDiceRolling] = useState(false)
   const [confirmingQuit, setConfirmingQuit] = useState(false)
-  // TESTING ONLY — see routes/debug.py for the full removable set.
-  const [forcedNotice, setForcedNotice] = useState('')
   const diceRotationRef = useRef({ x: 0, y: 0 })
   const prevRollSequenceRef = useRef(null)
 
@@ -505,34 +503,6 @@ export default function GamePage() {
     }
   }
 
-  // TESTING ONLY — forces the next dice roll (any game) to a specific value.
-  // Part of the removable debug-tools set described in routes/debug.py; to
-  // remove, delete this function, the forcedNotice state above, the button
-  // row that calls it below, and api.forceDice.
-  async function handleForceDice(value) {
-    setError('')
-    try {
-      await api.forceDice(value)
-      setForcedNotice(`Next roll forced to ${value}`)
-      setTimeout(() => setForcedNotice(''), 2500)
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
-  // TESTING ONLY — instantly completes this game so the Game Over / Final
-  // Standings screen can be previewed without playing a full game out. Same
-  // removable set as handleForceDice above, plus api.finishGameNow.
-  async function handleFinishNow() {
-    setError('')
-    try {
-      await api.finishGameNow(gameId)
-      await refresh()
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
   async function handleQuit() {
     setBusy(true)
     setError('')
@@ -614,33 +584,6 @@ export default function GamePage() {
       </h1>
       <ErrorNote>{error}</ErrorNote>
 
-      {/* TESTING ONLY — admin-only, removable set described in
-          routes/debug.py. Force the next dice roll, or skip straight to the
-          Game Over screen to preview it without playing a full game out. */}
-      {me.role === 'admin' && board.status === 'active' && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-ink-soft/40 bg-parchment/50 px-3 py-2">
-          <span className="text-xs font-bold text-ink-soft">Testing: Force Next Roll</span>
-          {[1, 2, 3, 4, 5, 6].map((n) => (
-            <button
-              key={n}
-              type="button"
-              onClick={() => handleForceDice(n)}
-              className="h-7 w-7 rounded-lg border border-ink-soft/40 bg-white text-sm font-bold text-ink hover:bg-parchment"
-            >
-              {n}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={handleFinishNow}
-            className="rounded-lg border border-ink-soft/40 bg-white px-2 py-1 text-xs font-bold text-ink hover:bg-parchment"
-          >
-            Finish Game Now
-          </button>
-          {forcedNotice && <span className="text-xs font-bold text-pine">{forcedNotice}</span>}
-        </div>
-      )}
-
       {board.status === 'completed' ? (
         <Card title="Final Standings">
           <ol className="space-y-2">
@@ -664,19 +607,13 @@ export default function GamePage() {
           </p>
         </Card>
       ) : confirmingQuit ? (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-ludo-red/30 bg-ludo-red/5 px-4 py-3">
-          <p className="text-sm font-semibold text-ink">
-            Quit this game for everyone? It won't count on the leaderboard and can't be undone.
-          </p>
-          <div className="ml-auto flex gap-2">
-            <Button variant="subtle" onClick={() => setConfirmingQuit(false)}>
-              Cancel
-            </Button>
-            <Button variant="danger" disabled={busy} onClick={handleQuit}>
-              Yes, Quit Game
-            </Button>
-          </div>
-        </div>
+        <ConfirmBar
+          message="Quit this game for everyone? It won't count on the leaderboard and can't be undone."
+          confirmLabel="Yes, Quit Game"
+          busy={busy}
+          onCancel={() => setConfirmingQuit(false)}
+          onConfirm={handleQuit}
+        />
       ) : (
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 flex-1">
